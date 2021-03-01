@@ -83,7 +83,7 @@ const dedupeProperties = (properties: t.ObjectProperty[] = [], mergeProps?: bool
   properties.forEach((prop) => {
     const { value: name } = prop.key as t.StringLiteral;
     const existing = knownProps.get(name);
-    if (existing) {
+    if (existing && typeof name === 'string') {
       if (name === 'style' || name === 'class' || name.startsWith('on')) {
         mergeAsArray(existing, prop);
       }
@@ -240,9 +240,15 @@ const buildProps = (path: NodePath<t.JSXElement>, state: State) => {
 
               // must be v-model or v-models and is a component
               if (!directive) {
-                properties.push(
-                  t.objectProperty(t.stringLiteral(propName), value as any),
-                );
+                if (t.isStringLiteral(args[index])) {
+                  properties.push(
+                    t.objectProperty(t.stringLiteral(propName), value as any),
+                  );
+                } else if (t.isIdentifier(args[index])) {
+                  // @ts-ignore
+                  properties.push(t.objectProperty(args[index], value, true));
+                }
+
                 dynamicPropNames.add(propName);
 
                 if (modifiers[index]?.size) {
@@ -260,17 +266,31 @@ const buildProps = (path: NodePath<t.JSXElement>, state: State) => {
                 }
               }
 
-              properties.push(
-                t.objectProperty(
-                  t.stringLiteral(`onUpdate:${propName}`),
-                  t.arrowFunctionExpression(
-                    [t.identifier('$event')],
-                    t.assignmentExpression('=', value as any, t.identifier('$event')),
+              if (t.isStringLiteral(args[index])) {
+                properties.push(
+                  t.objectProperty(
+                    t.stringLiteral(`onUpdate:${propName}`),
+                    t.arrowFunctionExpression(
+                      [t.identifier('$event')],
+                      t.assignmentExpression('=', value as any, t.identifier('$event')),
+                    ),
                   ),
-                ),
-              );
+                );
+                dynamicPropNames.add(`onUpdate:${propName}`);
+              } else {
+                properties.push(
+                  t.objectProperty(
+                    t.binaryExpression('+', t.stringLiteral('onUpdate:'), args[index]),
+                    t.arrowFunctionExpression(
+                      [t.identifier('$event')],
+                      t.assignmentExpression('=', value as any, t.identifier('$event')),
+                    ),
+                    true,
+                  ),
+                );
 
-              dynamicPropNames.add(`onUpdate:${propName}`);
+                // dynamicPropNames.add(t.binaryExpression('+', 'onUpdate:', args[index]));
+              }
             });
           }
         } else {
